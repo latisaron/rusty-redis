@@ -1,4 +1,5 @@
 use std::any::type_name;
+#[derive(Clone)]
 pub struct Serializer {}
 
 

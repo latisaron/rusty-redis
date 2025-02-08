@@ -3,11 +3,12 @@ use std::io::prelude::*;
 
 use crate::serializer::{Serializer, Value};
 
+#[derive(Clone)]
 pub struct Server {
     host: String,
     port: String,
     serializer: Serializer,
-    store: HashMap<String, Value>,
+    store: std::sync::Arc<std::sync::Mutex<HashMap<String, Value>>>,
 }
 
 pub struct Response {}
@@ -21,7 +22,7 @@ impl Server {
             host: host,
             port: port,
             serializer: Serializer::new(),
-            store: new_hashmap,
+            store: std::sync::Arc::new(std::sync::Mutex::new(new_hashmap)),
         });
     }
 
@@ -42,8 +43,12 @@ impl Server {
                                 return self.serializer.serialize(&Value::String(String::from("Error")));
                             }
                         } else if lower_string == "set" {
+                            println!("we're also here");
                             if let Value::Bulk(second_string) = &internal_ary[1] {
-                                self.store.insert(
+                                println!("second string is {:?}", second_string);
+                                println!("value is is {:?}", internal_ary[2].clone());
+                                let mut data = self.store.lock().unwrap();
+                                data.insert(
                                     String::from(second_string),
                                     internal_ary[2].clone(),
                                 );
@@ -55,7 +60,8 @@ impl Server {
                             println!("we're here");
                             if let Value::Bulk(second_string) = &internal_ary[1] {
                                 println!("second string is {:?}", second_string);
-                                if let Some(value) = self.store.get(second_string) {
+                                let data = self.store.lock().unwrap();
+                                if let Some(value) = data   .get(second_string) {
                                     return self.serializer.serialize(&value);
                                 } else {
                                     return self.serializer.serialize(&Value::String(String::from("Error")));
@@ -90,7 +96,16 @@ impl Server {
     pub fn start(&mut self) -> std::io::Result<()> {
         let new_listener = TcpListener::bind(format!("{}:{}", self.host, self.port))?;
         for stream in new_listener.incoming() {
-            self.handle_client(&mut stream?);
+            let mut server_clone = Server {
+                host: self.host.clone(),
+                port: self.port.clone(),
+                store: std::sync::Arc::clone(&self.store),
+                serializer: self.serializer.clone(),
+            };
+            std::thread::spawn(move || -> std::io::Result<()> {
+                server_clone.handle_client(&mut stream?);
+                return Ok(());
+            });
         }
         return Ok(());
     }

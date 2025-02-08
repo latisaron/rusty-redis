@@ -1,4 +1,4 @@
-use std::{fmt::Error, net::{TcpListener, TcpStream}};
+use std::{collections::HashMap, fmt::Error, net::{TcpListener, TcpStream}};
 use std::io::prelude::*;
 
 use crate::serializer::{Serializer, Value};
@@ -6,8 +6,8 @@ use crate::serializer::{Serializer, Value};
 pub struct Server {
     host: String,
     port: String,
-    listener: TcpListener,
     serializer: Serializer,
+    store: HashMap<String, Value>,
 }
 
 pub struct Response {}
@@ -16,17 +16,16 @@ pub struct Request {}
 
 impl Server {
     pub fn new(host: String, port: String) -> Result<Self, std::io::Error> {
-        let new_listener = TcpListener::bind(format!("{}:{}", host, port))?;
-        
+        let mut new_hashmap = HashMap::<String, Value>::new();
         return Ok(Server {
             host: host,
             port: port,
-            listener: new_listener,
             serializer: Serializer::new(),
+            store: new_hashmap,
         });
     }
 
-    fn handle_incoming_value(&self, incoming_value: &Value) -> String {
+    fn handle_incoming_value(&mut self, incoming_value: &Value) -> String {
         // return self.serializer.serialize(&Value::String(String::from("Pong")));
         match incoming_value {
             Value::Array(internal_ary) => {
@@ -35,12 +34,34 @@ impl Server {
                     Value::Bulk(internal_string) => {
                         let lower_string = internal_string.to_lowercase();
                         if  lower_string == "ping" {
-                            return String::from("PONG");
+                            return self.serializer.serialize(&Value::String(String::from("PONG")));
                         } else if lower_string == "echo" {
                             if let Value::Bulk(second_string) = &internal_ary[1] {
-                            return String::from(second_string);
+                                return self.serializer.serialize(&Value::String(String::from(second_string)));
                             } else {
-                                return String::from("Error");
+                                return self.serializer.serialize(&Value::String(String::from("Error")));
+                            }
+                        } else if lower_string == "set" {
+                            if let Value::Bulk(second_string) = &internal_ary[1] {
+                                self.store.insert(
+                                    String::from(second_string),
+                                    internal_ary[2].clone(),
+                                );
+                                return self.serializer.serialize(&Value::String(String::from("OK")));
+                            } else {
+                                return self.serializer.serialize(&Value::String(String::from("Error")));
+                            }
+                        } else if lower_string == "get" {
+                            println!("we're here");
+                            if let Value::Bulk(second_string) = &internal_ary[1] {
+                                println!("second string is {:?}", second_string);
+                                if let Some(value) = self.store.get(second_string) {
+                                    return self.serializer.serialize(&value);
+                                } else {
+                                    return self.serializer.serialize(&Value::String(String::from("Error")));
+                                }
+                            } else {
+                                return self.serializer.serialize(&Value::String(String::from("Error")));    
                             }
                         } 
                     },
@@ -54,7 +75,7 @@ impl Server {
         todo!()
     }
 
-    fn handle_client(&self, stream: &mut TcpStream) -> std::io::Result<()> {
+    fn handle_client(&mut self, stream: &mut TcpStream) -> std::io::Result<()> {
         let mut buf = [0; 512];
         let _ = stream.read(&mut buf);
 
@@ -66,8 +87,9 @@ impl Server {
         return Ok(());
     }
 
-    pub fn start(&self) -> std::io::Result<()> {
-        for stream in self.listener.incoming() {
+    pub fn start(&mut self) -> std::io::Result<()> {
+        let new_listener = TcpListener::bind(format!("{}:{}", self.host, self.port))?;
+        for stream in new_listener.incoming() {
             self.handle_client(&mut stream?);
         }
         return Ok(());

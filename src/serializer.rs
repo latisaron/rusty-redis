@@ -3,7 +3,7 @@ pub struct Serializer {}
 
 
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum Value {
     Null,
     NullArray,
